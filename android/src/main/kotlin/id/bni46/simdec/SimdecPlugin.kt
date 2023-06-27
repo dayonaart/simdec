@@ -6,14 +6,13 @@ import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
-import android.util.Log
 import androidx.annotation.NonNull
 import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.ContextCompat.getSystemService
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -21,8 +20,6 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
-import org.json.JSONArray
-import org.json.JSONException
 import org.json.JSONObject
 
 
@@ -60,9 +57,13 @@ class SimdecPlugin: FlutterPlugin, MethodCallHandler,ActivityAware {
     val manager: TelephonyManager =
       context?.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
      try {
-      if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         val subscriptionManager = activity?.getSystemService(SubscriptionManager::class.java)
-//      jsonObject.put("allCellInfo",manager.allCellInfo)
+        val subIds=(0..subscriptionManager?.activeSubscriptionInfoCount.let { 0 }).map {
+          subscriptionManager?.getSubscriptionIds(it)
+        }
+        jsonObject.put("subId", subIds)
+        jsonObject.put("sim_count",subscriptionManager?.activeSubscriptionInfoCount)
 //      jsonObject.put("activeSubscriptionInfoList",subscriptionManager?.activeSubscriptionInfoList)
         jsonObject.put("simState", manager.simState)
         jsonObject.put("simOperator", manager.simOperator)
@@ -70,8 +71,7 @@ class SimdecPlugin: FlutterPlugin, MethodCallHandler,ActivityAware {
         jsonObject.put("simOperatorName", manager.simCarrierIdName)
         jsonObject.put("phoneNumber", manager.line1Number)
       }else{
-        jsonObject.put("phoneNumber", manager.simSerialNumber)
-        jsonObject.put("simState", manager.simState)
+        jsonObject.put("simSerialNumber", manager.simSerialNumber)
         jsonObject.put("simOperator", manager.simOperator)
         jsonObject.put("phoneNumber", manager.line1Number)
       }
