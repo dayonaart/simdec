@@ -6,13 +6,13 @@ import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.annotation.NonNull
 import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.core.content.ContextCompat.getSystemService
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -58,13 +58,12 @@ class SimdecPlugin: FlutterPlugin, MethodCallHandler,ActivityAware {
       context?.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
      try {
       if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        val subscriptionManager = activity?.getSystemService(SubscriptionManager::class.java)
-        val subIds=(0..subscriptionManager?.activeSubscriptionInfoCount.let { 0 }).map {
-          subscriptionManager?.getSubscriptionIds(it)
-        }
-        jsonObject.put("subId", subIds)
-        jsonObject.put("sim_count",subscriptionManager?.activeSubscriptionInfoCount)
-//      jsonObject.put("activeSubscriptionInfoList",subscriptionManager?.activeSubscriptionInfoList)
+//        val subscriptionManager = activity?.getSystemService(SubscriptionManager::class.java)
+//        val subIds=(0..subscriptionManager?.activeSubscriptionInfoCount.let { 0 }).map {
+//          subscriptionManager?.getSubscriptionIds(it)
+//        }
+//        jsonObject.put("subId", subIds)
+        jsonObject.put("uniq_id",getDeviceId())
         jsonObject.put("simState", manager.simState)
         jsonObject.put("simOperator", manager.simOperator)
         jsonObject.put("simCarrierId", manager.simCarrierId)
@@ -76,7 +75,11 @@ class SimdecPlugin: FlutterPlugin, MethodCallHandler,ActivityAware {
         jsonObject.put("phoneNumber", manager.line1Number)
       }
        return jsonObject.toString()
-     } catch (e: java.lang.Exception) {
+     }catch (se:SecurityException){
+       return  jsonObject.put("error_security",se.toString()).toString()
+
+     }
+     catch (e: java.lang.Exception) {
     return  jsonObject.put("error",e.toString()).toString()
     }
   }
@@ -128,6 +131,29 @@ return if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.O) {
     return !b.contains(false)
   }
 
+  @SuppressLint("HardwareIds")
+  fun getDeviceId(): String {
+    val deviceId: String = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      Settings.Secure.getString(context?.contentResolver, Settings.Secure.ANDROID_ID)
+    } else {
+      val mTelephony = context?.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        if (context?.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+          return ""
+        }
+      }
+      if (mTelephony.deviceId != null) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          mTelephony.imei
+        } else {
+          mTelephony.deviceId
+        }
+      } else {
+        Settings.Secure.getString(context?.contentResolver, Settings.Secure.ANDROID_ID)
+      }
+    }
+    return deviceId
+  }
   override fun onAttachedToActivity(binding: ActivityPluginBinding) {
    activity=binding.activity
   }
