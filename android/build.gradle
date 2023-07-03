@@ -1,6 +1,6 @@
 group 'id.bni46.simdec'
 version '1.0-SNAPSHOT'
-
+def shizuku_version = '11.0.3'
 buildscript {
     ext.kotlin_version = '1.7.10'
     repositories {
@@ -41,6 +41,11 @@ android {
     }
 
     defaultConfig {
-        minSdkVersion 21
+        minSdkVersion 24
     }
+}
+dependencies{
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
+    implementation "dev.rikka.shizuku:api:$shizuku_version"
+    implementation "dev.rikka.shizuku:provider:$shizuku_version"
 }

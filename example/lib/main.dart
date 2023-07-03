@@ -14,28 +14,20 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final _simDec = Simdec();
-  String? data;
   @override
   Widget build(BuildContext context) {
     return MaterialApp(home: SafeArea(child: Scaffold(
       body: Builder(builder: (context) {
-        if (data == null) {
-          return Center(
-              child: ElevatedButton(
-                  onPressed: () async {
-                    data = await _simDec.getSimCard();
-                    print(data);
-                    setState(() {});
-                  },
-                  child: const Text("Get sim info")));
-        } else {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(15.0),
-              child: Text("$data"),
-            ),
-          );
-        }
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(15.0),
+            child: StreamBuilder<dynamic>(
+                stream: _simDec.simState,
+                builder: (context, s) {
+                  return Text("${s.data}");
+                }),
+          ),
+        );
       }),
     )));
   }

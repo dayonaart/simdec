@@ -3,167 +3,142 @@ package id.bni46.simdec
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
-import android.provider.Settings
+import android.provider.Settings.Secure
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.annotation.NonNull
-import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
-import io.flutter.plugin.common.MethodCall
+import io.flutter.plugin.common.EventChannel
+import io.flutter.plugin.common.EventChannel.EventSink
 import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugin.common.MethodChannel.MethodCallHandler
-import io.flutter.plugin.common.MethodChannel.Result
 import org.json.JSONObject
+import java.io.*
+import java.util.*
 
 
 /** SimdecPlugin */
-class SimdecPlugin: FlutterPlugin, MethodCallHandler,ActivityAware {
-  private lateinit var channel : MethodChannel
-  var context: Context? = null
-  var activity: Activity? = null
-  override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-    channel = MethodChannel(flutterPluginBinding.binaryMessenger, "simdec")
-    channel.setMethodCallHandler(this)
-    context=flutterPluginBinding.applicationContext
-  }
+class SimdecPlugin : FlutterPlugin, ActivityAware, EventChannel.StreamHandler,
+    BroadcastReceiver() {
+    private lateinit var channel: MethodChannel
+    var context: Context? = null
+    private lateinit var activity: Activity
+    private lateinit var telephonyManager: TelephonyManager
+    private lateinit var subscriptionManager: SubscriptionManager
+    private lateinit var eventChannel: EventChannel
+    private var eventSink: EventSink? = null
+    override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
+        context = flutterPluginBinding.applicationContext
+        eventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "simListen")
 
-  @RequiresApi(Build.VERSION_CODES.Q)
-  override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
-    if (call.method == "getSimcard") {
-      if (checkPermission()) {
-        result.success(getSimData())
-      } else {
-        requestPermission()
-        result.success(getSimData())
-      }
-    } else {
-      result.notImplemented()
+        eventChannel.setStreamHandler(this)
+        IntentFilter("android.intent.action.SIM_STATE_CHANGED").also {
+            context?.registerReceiver(this, it)
+        }
+
     }
-  }
 
-  override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
-    channel.setMethodCallHandler(null)
-  }
-  @SuppressLint("HardwareIds")
-  private fun getSimData(): String {
-    val jsonObject = JSONObject()
-    val manager: TelephonyManager =
-      context?.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-     try {
-      if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-//        val subscriptionManager = activity?.getSystemService(SubscriptionManager::class.java)
-//        val subIds=(0..subscriptionManager?.activeSubscriptionInfoCount.let { 0 }).map {
-//          subscriptionManager?.getSubscriptionIds(it)
-//        }
-//        jsonObject.put("subId", subIds)
-        jsonObject.put("uniq_id",getDeviceId())
-        jsonObject.put("simState", manager.simState)
-        jsonObject.put("simOperator", manager.simOperator)
-        jsonObject.put("simCarrierId", manager.simCarrierId)
-        jsonObject.put("simOperatorName", manager.simCarrierIdName)
-        jsonObject.put("phoneNumber", manager.line1Number)
-      }else{
-        jsonObject.put("simSerialNumber", manager.simSerialNumber)
-        jsonObject.put("simOperator", manager.simOperator)
-        jsonObject.put("phoneNumber", manager.line1Number)
-      }
-       return jsonObject.toString()
-     }catch (se:SecurityException){
-       return  jsonObject.put("error_security",se.toString()).toString()
-
-     }
-     catch (e: java.lang.Exception) {
-    return  jsonObject.put("error",e.toString()).toString()
+    @SuppressLint("UnsafeProtectedBroadcastReceiver")
+    override fun onReceive(context: Context?, intent: Intent?) {
+       try {
+           if (checkPermission()) {
+               if (telephonyManager.simState==TelephonyManager.SIM_STATE_ABSENT){
+                   eventSink?.success("Please insert your sim card")
+               }else{
+                   eventSink?.success(getSimData())
+               }
+           } else {
+               requestPermission()
+               if (checkPermission()) {
+                   if (telephonyManager.simState == TelephonyManager.SIM_STATE_ABSENT) {
+                       eventSink?.success("Please insert your sim card")
+                   } else {
+                       eventSink?.success(getSimData())
+                   }
+               }
+           }
+       }catch (e:Exception){
+           eventSink?.success("${e.message}")
+       }
     }
-  }
 
-  private fun getManifestPermission(): List<String> {
-return if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.O) {
-  listOf(
-    Manifest.permission.READ_PHONE_STATE,
-    Manifest.permission.READ_SMS,
-    Manifest.permission.ACCESS_FINE_LOCATION,
-    Manifest.permission.READ_PHONE_NUMBERS
-  )
-}else{
-  listOf(
-    Manifest.permission.READ_SMS,
-    Manifest.permission.READ_PHONE_STATE,
-    Manifest.permission.ACCESS_FINE_LOCATION,
-  )
-}
-  }
+    override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
+        channel.setMethodCallHandler(null)
+    }
 
-  private fun requestPermission() {
-    val perm: Array<String> = if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.O) {
-      arrayOf(
-        Manifest.permission.READ_PHONE_STATE,
-        Manifest.permission.READ_SMS,
-        Manifest.permission.ACCESS_FINE_LOCATION,
-        Manifest.permission.READ_PHONE_NUMBERS
-      )
-    }else{
-      arrayOf(
-        Manifest.permission.READ_SMS,
-        Manifest.permission.READ_PHONE_STATE,
-        Manifest.permission.ACCESS_FINE_LOCATION,
+    @SuppressLint("HardwareIds")
+    private fun getSimData(): String {
+        val jsonObject = JSONObject()
+        return try {
+            subscriptionManager = activity.getSystemService(SubscriptionManager::class.java)
+            telephonyManager = activity.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+            val s = subscriptionManager.getActiveSubscriptionInfoForSimSlotIndex(0)
+            // jsonObject.put("operator_name", s.carrierName)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                jsonObject.put("ssn", telephonyManager.simSerialNumber)
+            } else {
+                val unix = "${
+                    Secure.getString(
+                        context?.contentResolver,
+                        Secure.ANDROID_ID
+                    )
+                }${s?.subscriptionId}"
+                jsonObject.put(
+                    "sim_id",
+                    String(unix.toByteArray())
+                )
+            }
+            jsonObject.toString()
+        } catch (se: SecurityException) {
+            jsonObject.put("error_security", se.toString()).toString()
+
+        } catch (e: java.lang.Exception) {
+            jsonObject.put("error", e.toString()).toString()
+        }
+    }
+
+
+    private fun requestPermission() {
+        val perm = arrayOf(Manifest.permission.READ_PHONE_STATE)
+        ActivityCompat.requestPermissions(activity, perm, 666)
+    }
+
+    private fun checkPermission(): Boolean {
+        return PackageManager.PERMISSION_GRANTED == ContextCompat.checkSelfPermission(
+            activity,
+            Manifest.permission.READ_PHONE_STATE,
         )
     }
-    ActivityCompat.requestPermissions(activity!!, perm, 0)
-  }
 
-  private fun checkPermission(): Boolean {
-    val b= mutableListOf<Boolean>()
-    for(p in getManifestPermission()) {
-     val c=  PackageManager.PERMISSION_GRANTED == ContextCompat.checkSelfPermission(
-        activity!!,
-        p
-      )
-      b.add(c)
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        activity = binding.activity
     }
-    return !b.contains(false)
-  }
 
-  @SuppressLint("HardwareIds")
-  fun getDeviceId(): String {
-    val deviceId: String = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      Settings.Secure.getString(context?.contentResolver, Settings.Secure.ANDROID_ID)
-    } else {
-      val mTelephony = context?.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        if (context?.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
-          return ""
-        }
-      }
-      if (mTelephony.deviceId != null) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-          mTelephony.imei
-        } else {
-          mTelephony.deviceId
-        }
-      } else {
-        Settings.Secure.getString(context?.contentResolver, Settings.Secure.ANDROID_ID)
-      }
+    override fun onDetachedFromActivityForConfigChanges() {
     }
-    return deviceId
-  }
-  override fun onAttachedToActivity(binding: ActivityPluginBinding) {
-   activity=binding.activity
-  }
 
-  override fun onDetachedFromActivityForConfigChanges() {
-  }
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+    }
 
-  override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-  }
+    override fun onDetachedFromActivity() {
+    }
 
-  override fun onDetachedFromActivity() {
-  }
+    override fun onListen(arguments: Any?, events: EventSink?) {
+        eventSink = events
+        events?.success(getSimData())
+    }
+
+    override fun onCancel(arguments: Any?) {
+//        eventSink = null
+    }
 }
+
