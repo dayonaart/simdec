@@ -14,6 +14,18 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final _simDec = Simdec();
+  var data = SimCard();
+  @override
+  void initState() {
+    // TODO: implement initState
+    _simDec.simState.listen((event) {
+      setState(() {
+        data = event;
+      });
+    });
+    super.initState();
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(home: SafeArea(child: Scaffold(
@@ -21,11 +33,7 @@ class _MyAppState extends State<MyApp> {
         return Center(
           child: Padding(
             padding: const EdgeInsets.all(15.0),
-            child: StreamBuilder<dynamic>(
-                stream: _simDec.simState,
-                builder: (context, s) {
-                  return Text("${s.data}");
-                }),
+            child: Text("${data.toJson()}"),
           ),
         );
       }),

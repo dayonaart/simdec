@@ -10,25 +10,25 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings.Secure
+import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.annotation.NonNull
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.EventChannel.EventSink
 import io.flutter.plugin.common.MethodChannel
-import org.json.JSONObject
+import io.flutter.plugin.common.PluginRegistry.RequestPermissionsResultListener
 import java.io.*
 import java.util.*
 
 
 /** SimdecPlugin */
 class SimdecPlugin : FlutterPlugin, ActivityAware, EventChannel.StreamHandler,
-    BroadcastReceiver() {
+    BroadcastReceiver(), RequestPermissionsResultListener {
     private lateinit var channel: MethodChannel
     var context: Context? = null
     private lateinit var activity: Activity
@@ -36,6 +36,9 @@ class SimdecPlugin : FlutterPlugin, ActivityAware, EventChannel.StreamHandler,
     private lateinit var subscriptionManager: SubscriptionManager
     private lateinit var eventChannel: EventChannel
     private var eventSink: EventSink? = null
+    private var simObject = HashMap<String, String?>()
+    private var permissionGranted: Boolean = false
+    private lateinit var subscriptionInfo: SubscriptionInfo
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         context = flutterPluginBinding.applicationContext
         eventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "simListen")
@@ -47,80 +50,76 @@ class SimdecPlugin : FlutterPlugin, ActivityAware, EventChannel.StreamHandler,
 
     }
 
-    @SuppressLint("UnsafeProtectedBroadcastReceiver")
-    override fun onReceive(context: Context?, intent: Intent?) {
-       try {
-           if (checkPermission()) {
-               if (telephonyManager.simState==TelephonyManager.SIM_STATE_ABSENT){
-                   eventSink?.success("Please insert your sim card")
-               }else{
-                   eventSink?.success(getSimData())
-               }
-           } else {
-               requestPermission()
-               if (checkPermission()) {
-                   if (telephonyManager.simState == TelephonyManager.SIM_STATE_ABSENT) {
-                       eventSink?.success("Please insert your sim card")
-                   } else {
-                       eventSink?.success(getSimData())
-                   }
-               }
-           }
-       }catch (e:Exception){
-           eventSink?.success("${e.message}")
-       }
-    }
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
     }
 
     @SuppressLint("HardwareIds")
-    private fun getSimData(): String {
-        val jsonObject = JSONObject()
+    private fun getSimData(): HashMap<String, String?> {
         return try {
-            subscriptionManager = activity.getSystemService(SubscriptionManager::class.java)
-            telephonyManager = activity.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-            val s = subscriptionManager.getActiveSubscriptionInfoForSimSlotIndex(0)
-            // jsonObject.put("operator_name", s.carrierName)
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                jsonObject.put("ssn", telephonyManager.simSerialNumber)
+                simObject["message"] = "Success"
+                simObject["sim_id"] = telephonyManager.simSerialNumber
+                simObject
             } else {
                 val unix = "${
                     Secure.getString(
                         context?.contentResolver,
                         Secure.ANDROID_ID
                     )
-                }${s?.subscriptionId}"
-                jsonObject.put(
-                    "sim_id",
-                    String(unix.toByteArray())
-                )
+                }${subscriptionInfo.subscriptionId}"
+                simObject["message"] = "Success"
+                simObject["sim_id"] = String(unix.toByteArray())
             }
-            jsonObject.toString()
-        } catch (se: SecurityException) {
-            jsonObject.put("error_security", se.toString()).toString()
-
+            simObject
         } catch (e: java.lang.Exception) {
-            jsonObject.put("error", e.toString()).toString()
+            simObject = HashMap<String, String?>()
+            simObject["error"] = e.toString()
+            simObject
         }
     }
 
 
     private fun requestPermission() {
-        val perm = arrayOf(Manifest.permission.READ_PHONE_STATE)
-        ActivityCompat.requestPermissions(activity, perm, 666)
-    }
-
-    private fun checkPermission(): Boolean {
-        return PackageManager.PERMISSION_GRANTED == ContextCompat.checkSelfPermission(
+        ActivityCompat.requestPermissions(
             activity,
-            Manifest.permission.READ_PHONE_STATE,
+            arrayOf(Manifest.permission.READ_PHONE_STATE),
+            666
         )
     }
 
+    @SuppressLint("UnsafeProtectedBroadcastReceiver")
+    override fun onReceive(context: Context?, intent: Intent?) {
+        try {
+            if (telephonyManager.simState == TelephonyManager.SIM_STATE_ABSENT) {
+                simObject = HashMap<String, String?>()
+                simObject["message"] = "please insert your sim card"
+                eventSink?.success(simObject)
+            } else {
+                if (ActivityCompat.checkSelfPermission(
+                       activity,
+                        Manifest.permission.READ_PHONE_STATE
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    subscriptionInfo = subscriptionManager.getActiveSubscriptionInfoForSimSlotIndex(0)
+                    eventSink?.success(getSimData())
+                }
+            }
+        } catch (e: Exception) {
+            simObject = HashMap<String, String?>()
+            simObject["message"] = "Please wait....."
+            eventSink?.success(simObject)
+        }
+    }
+
+
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity
+        subscriptionManager = activity.getSystemService(SubscriptionManager::class.java)
+        telephonyManager =
+            activity.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+        binding.addRequestPermissionsResultListener(this)
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -134,11 +133,54 @@ class SimdecPlugin : FlutterPlugin, ActivityAware, EventChannel.StreamHandler,
 
     override fun onListen(arguments: Any?, events: EventSink?) {
         eventSink = events
-        events?.success(getSimData())
+        if (ActivityCompat.checkSelfPermission(
+                activity,
+                Manifest.permission.READ_PHONE_STATE
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            if (telephonyManager.simState == TelephonyManager.SIM_STATE_ABSENT) {
+                simObject = HashMap<String, String?>()
+                simObject["message"] = "please insert your sim card"
+                eventSink?.success(simObject)
+            } else {
+                subscriptionInfo = subscriptionManager.getActiveSubscriptionInfoForSimSlotIndex(0)
+                eventSink?.success(getSimData())
+            }
+        } else {
+            requestPermission()
+        }
     }
 
     override fun onCancel(arguments: Any?) {
 //        eventSink = null
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ): Boolean {
+        if (requestCode == 666) {
+            return if (ActivityCompat.checkSelfPermission(
+                    activity,
+                    Manifest.permission.READ_PHONE_STATE
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                if (ActivityCompat.checkSelfPermission(
+                        activity,
+                        Manifest.permission.READ_PHONE_STATE
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    subscriptionInfo = subscriptionManager.getActiveSubscriptionInfoForSimSlotIndex(0)
+                    eventSink?.success(getSimData())
+                }
+                true
+            } else {
+                requestPermission()
+                false
+            }
+        }
+        return false
     }
 }
 
