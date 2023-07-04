@@ -37,12 +37,10 @@ class SimdecPlugin : FlutterPlugin, ActivityAware, EventChannel.StreamHandler,
     private lateinit var eventChannel: EventChannel
     private var eventSink: EventSink? = null
     private var simObject = HashMap<String, String?>()
-    private var permissionGranted: Boolean = false
     private lateinit var subscriptionInfo: SubscriptionInfo
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         context = flutterPluginBinding.applicationContext
         eventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "simListen")
-
         eventChannel.setStreamHandler(this)
         IntentFilter("android.intent.action.SIM_STATE_CHANGED").also {
             context?.registerReceiver(this, it)
